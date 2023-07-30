@@ -61,7 +61,7 @@ def list_cameras():
         lib.gp_abilities_list_get_abilities(abilities_list_p, ability_idx,
                                             abilities)
         if abilities.device_type == lib.GP_DEVICE_STILL_CAMERA:
-            out.append(Camera(bus_no, device_no, lazy=True,
+            out.append(Camera.usb(bus_no, device_no, lazy=True,
                               _abilities=abilities))
     lib.gp_list_free(camlist_p)
     lib.gp_port_info_list_free(port_list_p)
@@ -539,18 +539,21 @@ class Camera(object):
     The specific device can be auto-detected or set manually by
     specifying the USB bus and device number.
 
-    :param bus:         USB bus number
-    :param device:      USB device number
+    :port:              port to communicate with device
     :param lazy:        Only initialize the device when needed
     """
-    def __init__(self, bus=None, device=None, lazy=False, _abilities=None):
+    
+    _port: str | None
+    
+    
+    def __init__(self, port=None, lazy=False, _abilities=None):
         self._logger = logging.getLogger()
 
         # NOTE: It is not strictly neccessary to create a context for every
         #       device, however it is significantly (>500ms) faster when
         #       actions are to be performed simultaneously.
         self._ctx = lib.gp_context_new()
-        self._usb_address = (bus, device)
+        self._port = port
         self.__abilities = _abilities
         self.__cam = None
         if not lazy:
@@ -567,6 +570,16 @@ class Camera(object):
         self.__data_p = ffi.new("char**")
         self.__length_p = ffi.new("unsigned long*")
 
+    @classmethod
+    def usb(cls, bus: str | None = None, device: str | None = None, lazy=False, _abilities=None):
+        port = f"usb:{bus},{device}"
+        return cls(port=port, lazy=lazy, _abilities=_abilities)
+
+    @classmethod
+    def ptpip(cls, host: str, lazy=False, _abilities=None):
+        port = f"ptpip:{host}"
+        return cls(port=port, lazy=lazy, _abilities=_abilities)
+    
     @property
     def supported_operations(self):
         """ All operations supported by the camera. """
@@ -779,9 +792,8 @@ class Camera(object):
     def _cam(self):
         if self.__cam is None:
             self.__cam = new_gp_object("Camera")
-            if self._usb_address != (None, None):
-                port_name = ("usb:{0:03},{1:03}".format(*self._usb_address)
-                                                .encode())
+            if self._port != None:
+                port_name = self._port.encode()
                 port_list_p = new_gp_object("GPPortInfoList")
                 lib.gp_port_info_list_load(port_list_p)
                 port_info_p = ffi.new("GPPortInfo*")
@@ -861,8 +873,7 @@ class Camera(object):
         pass
 
     def __repr__(self):
-        return "<Camera \"{0}\" at usb:{1:03}:{2:03}>".format(
-            self.model_name, *self._usb_address)
+        return f"<Camera {self.model_name} at {self._port}>"
 
     def __del__(self):
         if self.__cam is not None:
